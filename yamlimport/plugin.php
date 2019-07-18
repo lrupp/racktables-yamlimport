@@ -139,7 +139,7 @@ function ImportTab()
   {
     if(! is_dir($importdir))
     {
-        echo "something is wrong with: |$importdir|<br/>\n";
+      throw new RackTablesError ("Defined YAML_IMPORTDIRS directory: $importdir does not exist or is not accessible.", RackTablesError::MISCONFIGURED);
     }
     if ($files = scandir("$importdir"))
     {
@@ -371,7 +371,10 @@ function RunImport()
   // handling of directory for parsed/imported YAML files
   $olddir=getConfigVar('YAML_BACKUPDIR');
   if (! is_dir("$olddir")){
-    mkdir("$olddir", 0775, true);
+    if (!mkdir("$olddir", 0775, true))
+    {		  
+      throw new RackTablesError ("Defined YAML_BACKUPDIR directory: $olddir does not exist and can not be created.", RackTablesError::MISCONFIGURED);
+    }
   }
   
   foreach($objectnames as $file)
