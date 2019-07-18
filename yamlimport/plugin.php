@@ -13,12 +13,7 @@
 // Version 0.3:  + updated spyc.php to 0.6.1
 //               + Adaptation to 0.21.x (new plugin format)
 //
-// Installation:
-// 1) Copy script directory to plugins folder
-// 2) Adapt the path to the import and backup directory via 'Configuration' => 'User interface' 
-//    * YAML_IMPORTDIRS
-//    * YAML_BACKUPDIR
-// 3) make sure you have php-posix installed on your system
+// Installation: see README.md
 // 
 
 // import YAML Parser library.
@@ -55,7 +50,7 @@ function plugin_yamlimport_install ()
   addConfigVar('YAML_IMPORTDIRS', 'import', 'string', 'yes', 'no', 'no', 'Directories to look for new yml files (separated by commata)');
   addConfigVar('YAML_BACKUPDIR', 'backup', 'string', 'yes', 'no', 'no', 'Directory to move imported yml files into (needs write permission for the Webserver).');
   addConfigVar('YAML_DEFAULTCONTACT', 'default@address.com', 'string', 'yes', 'no', 'no', 'Default contact for newly imported YAML file objects (if not defined via \'contact\' value in file)');
-  addConfigVar('YAML_DEFAULT_SW_TYPE', 'SLES15', 'string', 'yes', 'no', 'no', 'Default Software Type to choose if not given in YAML file.');
+  addConfigVar('YAML_DEFAULT_SW_TYPE', 'SLES15', 'string', 'yes', 'no', 'no', 'Default Software Type to choose if not given in YAML file (empty to disable).');
   addConfigVar('YAML_UPDATE_CONTACT', 'false', 'string', 'yes', 'no', 'no', "'false'= use contact in DB; 'true'= use contact from YAML file");
   return TRUE;
 }
@@ -99,8 +94,8 @@ function printYAMLlegend()
 END
   ,TRUE);
   echo "<style type='text/css'>\n  tr.has_problems\n  {\n    background-color: #ffa0a0;\n  }\n</style>\n";
-  echo "Legend:<br/>";
   echo "<table align=right>
+    <tr><th colspan=2>Legend:</th></tr>
     <tr class=trerror><td colspan=2>Unknown object</td></tr>
     <tr><td class=row_even>Existing </td><td class=row_odd> object</td></tr>
     <tr><td class=row_even>Known tags in YAML file: </td><td style='font-size: small;'>";
@@ -204,17 +199,16 @@ function RunImport()
   global $remote_username;
 
   $knownTags=getKnownYAMLTags();
-  $log = '';
 
   $default_contact=getConfigVar('YAML_DEFAULTCONTACT');
   $update_contact=strtolower(getConfigVar('YAML_UPDATE_CONTACT'));
   $default_sw_type_name=getConfigVar('YAML_DEFAULT_SW_TYPE');
-  $default_os_dict_key = getdict($hw=$default_sw_type_name, $chapter=$operatingsystem_dict_chapter_id);
-  if(!isset($os_dict_key))
+  $default_os_dict_key='';
+  if ("$default_sw_type_name" != "")
   {
-    // avoid problem with unset/unknown SW Type Name
-    $os_dict_key=3687;  // SLES15
+    $default_os_dict_key = getdict($hw=$default_sw_type_name, $chapter=$operatingsystem_dict_chapter_id);
   }
+  //
   // We assume quite some type IDs below. Might be an idea to query them from the database 
   // directly... or alternatively define them in the config?
   //
@@ -382,19 +376,15 @@ function RunImport()
     $file_array = spyc_load_file("$file");
     $name=$file_array[0]['name'];
     $yaml_file_array=$file_array[0]['parameters'];
-    if ($debug)
-    {	  
-      $log .= "NAME: $name<br/>\n";
-      foreach ( $yaml_file_array as $key => $params ) {
-        $log .= "$key: $params<br/>\n";
-      }
-    }
     // At this point, $parameter_array contains all the data from the 
     // YAML file in a indexed array (hopefully).
     if (! isset($name))
     {
         throw new InvalidRequestArgException ('name', '', "Could not find 'name:' (tag and value) in file $file");
     }
+    global $log;
+    $log=array( 'html' => '',
+                 'txt' => '');
 
     // check for unknown fields
     foreach ($yaml_file_array as $key => $params)
@@ -402,14 +392,14 @@ function RunImport()
       if (in_array("$key", $knownTags))
       {
         if ($debug)
-          $log .= "  + found tag: $key in $objectname<br/>\n";
+          $log['html'] .= "  + found tag: $key in $objectname<br/>\n";
       } elseif ( preg_match('/^(ipaddress_|macaddress_|label_)/', $key))
       {
         if ($debug)
-          $log .= "  + ignoring $key, parsing later<br/>\n";
+          $log['html'] .= "  + ignoring $key, parsing later<br/>\n";
       } else
       {
-        $log .= "<font color=red>  - unkown tag: '$key' in $file</font><br/>\n";
+        $log['html'] .= "<font color=red>  - unkown tag: '$key' in $file</font><br/>\n";
       }
     }
 
@@ -434,7 +424,8 @@ function RunImport()
               'tab' => 'default',
         'object_id' => $id
       ));
-      $log .= "<a href=\"$url\">" . $name .  "</a> already existed: updated<br/>\n<div class='tdleft' style='font-weight: normal;'><ul>";
+      $log['html'] .= "<a href=\"$url\">" . $name .  "</a> already existed: updated<br/>\n<div class='tdleft' style='font-weight: normal;'><ul>\n";
+      $log['txt']  .= "updated $name from file: $file\n";
     } 
     else 
     {
@@ -442,15 +433,14 @@ function RunImport()
       //
       // We only need a unique name inside a machinetype - the rest of values
       // for the commitAddObject() function is optional.
-      // So ignore label, asset_tag and taglist for the moment: 
-      //   we update these values later
+      // So ignore label, asset_tag and taglist for the moment,
+      // as we create/update these values later
       $label=NULL;
       $asset_tag=NULL;
       $taglist = array();
       // MACHINETYPE
       if(isset($yaml_file_array['machinetype']))
       {
-        // Type is 4, server, by default - but get it from the Dictionary to be sure
         $query = "SELECT dict_key FROM Dictionary WHERE dict_value='".$yaml_file_array['machinetype']."' LIMIT 1";
         unset($result);
         $result = usePreparedSelectBlade ($query);
@@ -466,19 +456,22 @@ function RunImport()
       }
       // Finally: create the new object:
       $id = commitAddObject ($yaml_name,$label,$machinetype,$asset_tag,$taglist);
-      addLogEntry($id,"$name added successful via YAML import from $file");
       // report back to user
       $url=makeHref (array (
              'page' => 'object',
               'tab' => 'default',
         'object_id' => $id
       ));
-      $log .= "<a href=\"$url\">" . $name .  "</a> added successful.<br/>\n<div class='tdleft' style='font-weight: normal;'><ul>";
+      $log['html'] .= "<a href=\"$url\">" . $name .  "</a> added successful.<br/>\n<div class='tdleft' style='font-weight: normal;'><ul>\n";
+      $log['txt']  .= "$name added successful via YAML import from $file\n";
     }
     //
     // Updating existing or creating new values below
     //
-    // We assume that entries in the imported file always override existing entries in the database
+    // We assume that entries in the imported file override existing entries in
+    // the database beside:
+    // + description
+    // + contact (if defined in userinterface)
     //
 
     // get some values from the DB to compare with new values later
@@ -486,20 +479,25 @@ function RunImport()
     $object_attributes = getAttrValuesSorted($id);
 
     // LABEL
-    if(isset($yaml_file_array['label']))
+    $label=$name;
+    if (isset($object_details['label']))
+    {
+      $old_label=$object_details['label'];
+      $label=$old_label;
+      if(isset($yaml_file_array['label']))
+      {
+	$new_label=$yaml_file_array['label'];
+        if ("$new_label" != "$old_label")
+	{
+	  $label=$new_label;
+	  addLog("updated Label from $old_label to: $new_label");
+	}
+      }
+    }
+    elseif (isset($yaml_file_array['label']))
     {
       $label=$yaml_file_array['label'];
-    }
-    else
-    {
-      if (isset($object_details['label']))
-      {
-        $label=$object_details['label'];
-      }
-      else
-      {
-        $label=$yaml_name;
-      }
+      addLog("added Label: $label");
     }
  
     // ASSET_TAG
@@ -507,36 +505,48 @@ function RunImport()
     if(isset($yaml_file_array['asset_tag']))
     {
       $asset_tag=$yaml_file_array['asset_tag'];
+      if(isset($object_details['asset_no']))
+      {
+        $old_asset_tag=$object_details['asset_no'];
+	if ("$old_asset_tag" != "$asset_tag")
+	{
+	  addLog("updated asset tag from $old_asset_tag to: $asset_tag");
+	}
+      }
+      else
+      {
+        addLog("added asset tag: $asset_tag");
+      }
     }
     else
     {
-      if(isset($yaml_file_array['orthos_id']))
+      if(isset($object_details['asset_no']))
+      {
+        $asset_tag=$object_details['asset_no'];
+      }
+      elseif (isset($yaml_file_array['orthos_id']))
       {
         // special handling for Orthos machines: they don't have an official 
         // asset tag, so use the serial number, if exists
         if (isset($yaml_file_array['serialnumber']))
         {
           $asset_tag=$yaml_file_array['serialnumber'];
+          addLog("added asset tag: $asset_tag");
         }
-      }
-      if(isset($object_details['asset_no']))
-      {
-        $asset_tag=$object_details['asset_no'];
       }
     }
 
     // DESCRIPTION
     $description='';
-    if(isset($yaml_file_array['description']))
+    // do NOT update description in DB if comment (in DB) is not empty
+    if(isset($object_details['comment']) && ($object_details['comment'] != ''))
+    {
+      $description=$object_details['comment'];
+    }
+    elseif (isset($yaml_file_array['description']))
     {
       $description=$yaml_file_array['description'];
-    }
-    else
-    {
-      // do NOT update description in DB if comment (in DB) is not empty
-      if(isset($object_details['comment']) && ($object_details['comment'] != '')){
-        $description=$object_details['comment'];
-      }
+      addLog("added description");
     }
 
     // Update object_id with current values for name, label asset_tag and description (comment)
@@ -559,16 +569,14 @@ function RunImport()
 	$old_hw_type=$object_attributes[$hw_type_id]['value'];
 	if ("$old_hw_type" != "$HW_type")
 	{
-          commitUpdateAttrValue($object_id = $id, $attr_id = $hw_type_id, $value = $hw_dict_key);
-	  $log .= "<li>updated HW type from '$old_hw_type' to: $HW_type for $name</li>\n";
-	  addLogEntry($id,"updated HW type from '$old_hw_type' to: $HW_type");
+	  commitUpdateAttrValue($object_id = $id, $attr_id = $hw_type_id, $value = $hw_dict_key);
+          addLog("updated HW type from '$old_hw_type' to: $HW_type");
 	}
       }
       else 
       {
 	commitUpdateAttrValue ($object_id = $id, $attr_id = $hw_type_id, $value = $hw_dict_key);
-	$log .= "<li>set HW type to: $HW_type for $name</li>\n";
-	addLogEntry($id,"set HW type to: $HW_type");
+        addLog("set HW type to: $HW_type");	
       }
     }
 
@@ -603,26 +611,20 @@ function RunImport()
 	    $old_cluster_id=$old_cluster[0]['id'];
 	    if ($old_cluster_id != $cluster_id)
             {
-              // commitUpdateEntityLink(
-              // $old_parent_entity_type, $old_parent_entity_id, $old_child_entity_type, $old_child_entity_id,
-              // $new_parent_entity_type, $new_parent_entity_id, $new_child_entity_type, $new_child_entity_id);
               commitUpdateEntityLink('object', $old_cluster_id, 'object', $id,
-                                     'object', $cluster_id, 'object', $id );
-              $log .= "<li>moved $name from container: ". $object_details['container_dname'] ."(ID: ". $old_cluster_id .
-		      ") to container: ". $yaml_file_array['container'] ." (ID: ". $cluster_id .")</li>\n";
-	      addLogEntry($id,"moved $name from container: ".$object_details['container_dname']."to container: ". $yaml_file_array['container']);
+                                     'object', $cluster_id, 'object', $id);
+	      addLog("moved $name from container: ".$object_details['container_dname']."to container: ". $yaml_file_array['container']);
 	    }
 	  }
 	  else 
 	  {
             commitLinkEntities('object', $cluster_id, 'object', $id );
-	    $log .= "<li>added $name to container: ". $yaml_file_array['container'] ."</li>";
-	    addLogEntry($id,"added $name to container: ". $yaml_file_array['container']);
+	    addLog("added $name to container: ". $yaml_file_array['container']);
           }	  
       }
       else
       {
-        $log .= "<li><font color=red>Cluster: ".$yaml_file_array['container']." (in file $file) not found - skipping.</font></li>";
+        $log['html'] .= "<li><font color=red>Cluster: ".$yaml_file_array['container']." (in file $file) not found - skipping.</font></li>";
       }
     }
 
@@ -643,15 +645,13 @@ function RunImport()
 	if ("$old_memory" != "$memory")
 	{
 	  commitUpdateAttrValue($object_id = $id, $attr_id = $memorysize_id, $value = $memory);
-	  $log .= "<li>updated Memory from $old_memory to: $memory for $name</li>\n";
-	  addLogEntry($id,"updated Memory from $old_memory to: $memory");
+          addLog("updated memory from $old_memory to: $memory");
 	}
       }
       else 
       {
         commitUpdateAttrValue($object_id = $id, $attr_id = $memorysize_id, $value = $memory);
-	$log .= "<li>set Memory to: $memory G for $name</li>\n";
-	addLogEntry($id,"set Memory to: $memory G");
+        addLog("set memory to: $memory");
       }
     }
 
@@ -666,15 +666,13 @@ function RunImport()
         if ($old_warranty != $warranty)
 	{
           commitUpdateAttrValue ($object_id = $id, $attr_id = $hw_warranty_id, $value = $warranty);
-	  $log .= "<li>updated HW warranty (from: $old_warranty) to: $warranty for $name</li>\n";
-	  addLogEntry($id,"updated HW warranty (from: $old_warranty) to: $warranty");
+          addLog("updated HW warranty (from: $old_warranty) to: $warranty");
 	}
       }
       else
       {
         commitUpdateAttrValue ($object_id = $id, $attr_id = $hw_warranty_id, $value = $warranty);
-	$log .= "<li>set HW warranty to: $warranty for $name</li>\n";
-	addLogEntry($id,"set HW warranty to: $warranty");
+	addLog("set HW warranty to: $warranty");
       }
     }
 
@@ -688,15 +686,13 @@ function RunImport()
 	if ($old_orthos_id != $orthos_id)
 	{
 	  commitUpdateAttrValue($object_id = $id, $attr_id = $orthos_attribute_id, $value = $orthos_id);
-	  $log .= "<li>updated Orthos ID from $old_orthos_id to: $orthos_id for $name</li>\n";
-	  addLogEntry($id,"updated Orthos ID from $old_orthos_id to: $orthos_id");
+	  addLog("updated Orthos ID from $old_orthos_id to: $orthos_id");
 	}
       }
       else 
       {
         commitUpdateAttrValue($object_id = $id, $attr_id = $orthos_attribute_id, $value = $orthos_id);
-	$log .= "<li>set Orthos-ID to: $orthos_id for $name</li>\n";
-	addLogEntry($id,"set Orthos-ID to: $orthos_id");
+	LogEntry("set Orthos-ID to: $orthos_id");
       }
     }
 
@@ -710,15 +706,13 @@ function RunImport()
 	if ("$old_fqdn" != "$fqdn")
 	{
           commitUpdateAttrValue ($object_id = $id, $attr_id = $fqdn_attribute_id, $value = $fqdn);
-	  $log .= "<li>updated FQDN from $old_fqdn to: $fqdn for $name</li>\n";
-	  addLogEntry($id,"updated FQDN from $old_fqdn to: $fqdn");
+	  addLog("updated FQDN from $old_fqdn to: $fqdn");
 	}
       }
       else 
       {
         commitUpdateAttrValue ($object_id = $id, $attr_id = $fqdn_attribute_id, $value = $fqdn);
-	$log .= "<li>set FQDN to: $fqdn for $name</li>\n";
-	addLogEntry($id,"set FQDN to: $fqdn");
+	addLog("set FQDN to: $fqdn");
       }
     }
 
@@ -732,15 +726,13 @@ function RunImport()
 	if ("$old_uuid" != "$uuid")
 	{
 	  commitUpdateAttrValue ($object_id = $id, $attr_id = $uuid_attribute_id, $value = $uuid);
-	  $log .= "<li>updated UUID from $old_uuid to: $uuid for $name</li>\n";
-	  addLogEntry($id,"updated UUID from $old_uuid to: $uuid");
+	  addLog("updated UUID from $old_uuid to: $uuid");
 	}
       }
       else 
       {
         commitUpdateAttrValue ($object_id = $id, $attr_id = $uuid_attribute_id, $value = $uuid);
-	$log .= "<li>set UUID to $uuid for $name</li>\n";
-	addLogEntry($id,"set UUID to $uuid");
+	addLog("set UUID to $uuid");
       }
     }
 
@@ -754,15 +746,13 @@ function RunImport()
 	if ("$old_serialno" != "$serialno")
 	{
 	  commitUpdateAttrValue ($object_id = $id, $attr_id = $serialnumber_attribute_id, $value = $serialno);
-	  $log .= "<li>updated Serialnumber from '$old_serialno' to: $serialno for $name</li>\n";
-	  addLogEntry($id,"updated Serialnumber from '$old_serialno' to: $serialno");
+	  addLog("updated Serialnumber from '$old_serialno' to: $serialno");
 	}
       }
       else 
       {
         commitUpdateAttrValue ($object_id = $id, $attr_id = $serialnumber_attribute_id, $value = $serialno);
-	$log .= "<li>set Serialnumber to: $serialno for $name</li>\n";
-	addLogEntry($id,"set Serialnumber to: $serialno");
+	addLogEntry("set Serialnumber to: $serialno");
       }
     }
 
@@ -778,15 +768,13 @@ function RunImport()
 	if ("$old_architecture" != "$architecture")
 	{
 	  commitUpdateAttrValue ($object_id = $id, $attr_id = $architecture_id, $value = $architecture_key );
-	  $log .= "<li>updated Architecture from $old_architecture to: $architecture for $name</li>\n";
-	  addLogEntry($id,"updated Architecture from $old_architecture to: $architecture");
+	  addLog("updated Architecture from $old_architecture to: $architecture");
 	}
       }
       else 
       {
         commitUpdateAttrValue ($object_id = $id, $attr_id = $architecture_id, $value = $architecture_key );
-	$log .= "<li>set architecture to $architecture (ID: $architecture_key) for $name</li>\n";
-	addLogEntry($id,"set architecture to $architecture");
+	addLog("set architecture to $architecture");
       }
     }
 
@@ -802,43 +790,64 @@ function RunImport()
 	  if ( "$update_contact" === "true" )
 	  {
 	    commitUpdateAttrValue ($object_id = $id, $attr_id = $contact_attribute_id, $value = $contact);
-	    $log .= "<li>updated Contact from $old_contact to: $contact for $name</li>\n";
-	    addLogEntry($id,"updated Contact from $old_contact to: $contact");
+	    addLog("updated Contact from $old_contact to: $contact");
 	  }
 	  else 
 	  {
-	    $log .= "<li>left Contact: $old_contact (instead of new: $contact) as 'YAML_UPDATE_CONTACT' in 'User interface' is set to 'true'</li>\n";
+	    $log['html'] .= "<li>left Contact: $old_contact (instead of new: $contact) as 'YAML_UPDATE_CONTACT' in 'User interface' is set to 'true'</li>\n";
 	  }
 	}
+      }
+      else 
+      {
+        commitUpdateAttrValue ($object_id = $id, $attr_id = $contact_attribute_id, $value = $contact);
+	addLog("set contact to: $contact");
       }
     }
     else
     {
       commitUpdateAttrValue ($object_id = $id, $attr_id = $contact_attribute_id, $value = $default_contact);
-      $log .= "<li>set default contact $default_contact for $name</li>\n";
-      addLogEntry($id,"set contact to default: $default_contact");
+      addLog("set contact to default: $default_contact");
     }
 
-    // Operating system string, Dict Chapter ID is '13'.
+    // Operating system string
     if (isset($yaml_file_array['operatingsystem']) && isset($yaml_file_array['operatingsystemrelease']))
     {
+      $osrelease = $yaml_file_array['operatingsystem'] . " " . $yaml_file_array['operatingsystemrelease'];
       if(preg_match('/^SLES.*/i', $yaml_file_array['operatingsystem']))
       {
         $osrelease = $yaml_file_array['operatingsystem'] . "" . $yaml_file_array['operatingsystemrelease'];
       }
+      $os_dict_key = getdict($hw=$osrelease, $chapter=$operatingsystem_dict_chapter_id);
+
+//      if (isset($object_attributes[$operatingsystem_dict_chapter_id]['key']))
+      if (isset($object_attributes['4']['key']))
+      {
+        $old_os_dict_key=$object_attributes['4']['key'];
+	if ("$old_os_dict_key" != "$os_dict_key")
+        {
+	  commitUpdateAttrValue($object_id = $id, $attr_id = '4', $value = $os_dict_key);
+	  addLog("updated operatingsystem to: $osrelease");
+	}
+      }
       else
       {
-        $osrelease = $yaml_file_array['operatingsystem'] . " " . $yaml_file_array['operatingsystemrelease'];
+        commitUpdateAttrValue($object_id = $id, $attr_id = '4', $value = $os_dict_key);
+        addLog("set Operating System to: $osrelease");
       }
-      $os_dict_key = getdict($hw=$osrelease, $chapter=$operatingsystem_dict_chapter_id);
-      // hardcode the OS to the default, if there is no match
-      if(!isset($os_dict_key))
+    }
+    else
+    {
+      if (!isset($object_attributes[$operatingsystem_dict_chapter_id]['key']))    
       {
-        $os_dict_key = $default_os_dict_key;
-      }
-      commitUpdateAttrValue($object_id = $id, $attr_id = '4', $value = $os_dict_key);
-      $log .= "<li>set Operating System to: $osrelease (ID: $os_dict_key)</li>\n";
-      addLogEntry($id,"set Operating System to: $osrelease");
+	if ("$default_os_dict_key" != "")
+	{
+          // hardcode the OS to the default, if there is no match
+	  $os_dict_key = $default_os_dict_key;
+          commitUpdateAttrValue($object_id = $id, $attr_id = '4', $value = $os_dict_key);
+          addLog("set Operating System to (default): $osrelease");
+	}
+      }	
     }
 
     // Hypervisor
@@ -852,15 +861,13 @@ function RunImport()
 	if ("$old_hypervisor" != "$hypervisor")
 	{
 	  commitUpdateAttrValue($object_id = $id, $attr_id = $hypervisor_attribute_id, $value = $hv_dict_key);
-	  $log .= "<li>updated hypervisor from $old_hypervisor to: $hypervisor for $name</li>\n";
-	  addLogEntry($id,"updated hypervisor from $old_hypervisor to: $hypervisor");
+	  addLog("updated hypervisor from $old_hypervisor to: $hypervisor");
 	}
       }
       else
       {
         commitUpdateAttrValue($object_id = $id, $attr_id = $hypervisor_attribute_id, $value = $hv_dict_key);
-	$log .= "<li>set flag hypervisor to: $hypervisor for $name</li>\n";
-	addLogEntry($id,"set flag hypervisor to: $hypervisor");
+	addLog("set flag hypervisor to: $hypervisor");
       }
     }
 
@@ -885,11 +892,22 @@ function RunImport()
         if (isset($yaml_file_array['ipaddress_' . $nics[$i]]))
         {
           $ip = $yaml_file_array['ipaddress_' . $nics[$i]];
-        }
+	}
         // Get MAC
         if (isset($yaml_file_array['macaddress_' . $nics[$i]]))
         {
           $mac = $yaml_file_array['macaddress_' . $nics[$i]];
+          $mac = strtoupper(trim($mac));
+          $db_mac = l2addressForDatabase($mac);
+          try
+          {
+            assertUniqueL2Addresses(array ($db_mac), $id);
+          }
+          catch (InvalidArgException $iae)
+          {
+            $log['html'] .= "<font color='red'>Can not use $mac, as this address already exists.</font> (please search for this MAC)<br/>\n";
+            $mac = '';
+          }
         }
         if (isset($yaml_file_array['label_' . $nics[$i]]))
         {
@@ -923,33 +941,36 @@ function RunImport()
         $resultarray = $result->fetchAll (PDO::FETCH_ASSOC);
         if($resultarray)
         {
-          //unset($id);
+          unset($ip);
           $ipcheck=$resultarray;
         }
         // Check if it's been configured a port already
-        $query = "SELECT id,iif_id FROM Port WHERE object_id=$id AND name=\"$nics[$i]\" LIMIT 1";
+        $query = "SELECT id,iif_id,l2address,label FROM Port WHERE object_id=$id AND name=\"$nics[$i]\" LIMIT 1";
         unset($result);
         $result = usePreparedSelectBlade ($query);
         $resultarray = $result->fetchAll (PDO::FETCH_ASSOC);
         if($resultarray)
         {
-          $portid = $resultarray[0]['id'];
-          //unset($id);
-          $portcheck=$resultarray;
-        }
+	  $portid    = $resultarray[0]['id'];
+	  $portmac   = $resultarray[0]['l2address'];
+	  $portlabel = $resultarray[0]['label'];
+          $portcheck = $resultarray;
+	}
         // Add/update port
         if ( $resultarray[0]['type'] != 9 )
         {
           if ( count($portcheck) == 1 )
           {
-            commitUpdatePort($id, $portid, $nics[$i], $nictypeid, $iflabel, "$mac", NULL);
-	    // addLogEntry($id,"Updated NIC ". $nics[$i] ." ($iflabel) with MAC: $mac");
+            if ( ("$portlabel" != "$iflabel") || ("$portmac" != "$db_mac") )
+	    {
+	      commitUpdatePort($id, $portid, $nics[$i], $nictypeid, $iflabel, "$mac", NULL);
+	      addLog("updated NIC ". $nics[$i] ." ($iflabel) with MAC: $mac");
+	    }
           }
           else
           {
             commitAddPort($object_id = $id, $nics[$i], $nictypeid,$iflabel,"$mac");
-	    addLogEntry($id,"Added NIC ". $nics[$i] ." ($iflabel) with MAC: $mac");
-            $log .= "<li>added NIC ". $nics[$i] ." ($iflabel) with MAC: $mac</li>\n";
+	    addLog("added NIC ". $nics[$i] ." ($iflabel) with MAC: $mac");
 	  }
         }
         else
@@ -962,7 +983,7 @@ function RunImport()
           if( $ip )
           {
 	    updateAddress(ip_parse($ip), $id, $nics[$i],'regular');
-            addLogEntry($id,"Updated address: $ip for NIC ".$nics[$i]);
+            addLog("updated address: $ip for NIC ".$nics[$i]);
           }
         }
         else
@@ -970,8 +991,7 @@ function RunImport()
           if( $ip )
           {
             bindIpToObject(ip_parse($ip), $id, $nics[$i],'regular');
-	    addLogEntry($id,"Added address: $ip to NIC ".$nics[$i]);
-	    $log .= "<li>added address: $ip to NIC ".$nics[$i]."</li>\n";
+	    addLog("added address: $ip to NIC ".$nics[$i]);
 	  }
         }
         // clean up
@@ -987,12 +1007,13 @@ function RunImport()
     {
       $tags=explode(",", $yaml_file_array['tags']);
       $log_tags='';
+      global $log;
       foreach ($tags as $tag)
       {
          $query="SELECT id FROM TagTree WHERE tag='$tag' LIMIT 1";
          unset($result);
-         $result = usePreparedSelectBlade ($query);
-         $resultarray = $result->fetchAll (PDO::FETCH_ASSOC);
+         $result=usePreparedSelectBlade ($query);
+         $resultarray=$result->fetchAll (PDO::FETCH_ASSOC);
          if($resultarray)
          {
            $tag_id=$resultarray[0]['id'];
@@ -1002,23 +1023,25 @@ function RunImport()
 	 {
 	   $query="SELECT tag_id FROM TagStorage WHERE entity_id='$id' AND tag_id='$tag_id'";
            unset($result);
-	   $result = usePreparedSelectBlade($query);
-	   $resultarray = $result->fetchAll (PDO::FETCH_ASSOC);
+	   $result=usePreparedSelectBlade($query);
+	   $resultarray=$result->fetchAll (PDO::FETCH_ASSOC);
 	   if( ! $resultarray)
            {
              usePreparedExecuteBlade('INSERT INTO TagStorage SET entity_realm=?, entity_id=?, tag_id=?, tag_is_assignable=?, user=?, date=NOW()',
                                       array ('object', $id, $tag_id, 'yes', 'yaml_import script'));
-	     $log_tags .= " '$tag',";
+	     $log_tags.=" '$tag',";
 	   }
          }
       }
       $log_tags=rtrim($log_tags,',');
-      $log .= "<li>added Tag(s): $log_tags to $name</li>\n";
-      addLogEntry($id,"Added Tag(s): $log_tags");
+      if ("$log_tags" != "")
+      {
+	      addLog("added Tag(s): $log_tags");
+      }
     }
 
     // Finish lists of changed/added content: no more <li> below this line
-    $log .= "</ul>\n";
+    $log['html'].="</ul>\n";
 
     // Finally: Move the file out of the way into the olddir folder to cleanup the import folder
     $file_owner=fileowner("$file");
@@ -1027,18 +1050,29 @@ function RunImport()
     {
       $filename=basename("$file");
       rename ("$file", "$olddir/$filename") or die("Unable to rename $file to $olddir/$filename");
-      $log .= "Moved $file to $olddir<br/>";
+      $log['html'].="Moved $file to $olddir<br/>";
     }
     else
     {
-      $log.="Could not move $file into $olddir : please do manually now and fix file permissions next time.<br/>";
+      $log['html'].="Could not move $file into $olddir : please do manually now and fix file permissions next time.<br/>\n";
     }
 
     // finally finish the div containing the details for a machine
-    $log .= "</div><br/>\n";
+    $log['html'].="</div><br/>\n";
   }
+  // report back (to user)
+  if ($log['txt'] != "updated $name from file: $file\n")
+  {
+    addLogEntry($id,$log['txt']);
+  }
+  return showSuccess($log['html']);
+}
 
-  return showSuccess($log);
+function addLog($string)
+{
+  global $log;
+  $log['html'] .= "<li>$string</li>\n";
+  $log['txt']  .= "- $string\n";
 }
 
 function getKnownYAMLTags ()
