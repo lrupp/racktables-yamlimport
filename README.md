@@ -21,3 +21,40 @@ Automatically import RackTables objects from (Puppets) YAML files.
 4) make sure you have php-posix installed on your system
 5) go to 'Configuration' => 'Plugins' and enable the plugin named 'YAML import'
 
+## Usage
+
+1) Copy files with the name of the machine and the ending '.yml' into the 
+   YAML_IMPORTDIRS directory. Make sure your webserver can read/write them.
+2) Go to 'Objects' => 'Import YAML objects' (index.php?page=depot&tab=yamlimport)
+3) select the machine you want to import by activating the checkbox
+4) click on 'Import selected items'
+
+* If a machine already exists, it's values will be updated, otherwise 
+  a new object will be created.
+* once imported, the file will be moved into the backupdir folder 
+  (only if the webserver has write permissions to both folders and the file)
+
+## Possible 'tags' in the YAML file
+
+Please have a look at the page of the plugin ('Objects' => 'Import YAML objects'):
+there is a Legend at the right side listing all recognized tags which can be 
+used.
+
+Please note: tags ending with an underscore (like 'ipaddress_' or 'label_') will 
+only be recognized if they are extended with the interface names defined via 
+the 'interfaces' tag. Example: if you define 
+```
+  interfaces: eth0
+```
+The following additional tags are recognized:
+```
+  ipaddress_eth0: 192.168.0.1
+  macaddress_eth0: aa:bb:cc:dd:ee:ff
+  label_eth0: eth0
+```
+
+## Test
+
+The 'test' directory of this plugin contains some YAML files for testing.
+
+
