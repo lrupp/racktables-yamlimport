@@ -73,6 +73,12 @@ function plugin_yamlimport_upgrade ()
 function printYAMLlegend()
 {
   $knownTags=getKnownYAMLTags();
+  $attribute_id_map=getAttributeNameMap();
+  foreach ( $attribute_id_map as $yaml_keyword => $new_value ) 
+  {
+    array_push($knownTags,$yaml_keyword);
+  }
+  natcasesort($knownTags);
   addJS (<<<END
   function toggle(source){
     var inputs = document.querySelectorAll('input[type="checkbox"]');
@@ -98,7 +104,7 @@ END
     <tr><th colspan=2>Legend:</th></tr>
     <tr class=trerror><td colspan=2>Unknown object</td></tr>
     <tr><td class=row_even>Existing </td><td class=row_odd> object</td></tr>
-    <tr><td class=row_even>Known tags in YAML file: </td><td style='font-size: small;'>";
+    <tr><td class=row_even>Known tags in YAML file:<br/>(Please note that not all tags work for all objects.)</td><td style='font-size: small;'>";
   foreach ($knownTags as $tag)
   {
     echo "$tag,<br/>";
@@ -120,8 +126,7 @@ function ImportTab()
     echo "<center>from $importdir</center>\n";
   }
   echo '<br/><table with=90% align=center border=0 cellpadding=5 cellspacing=0 align=center class=cooltable><tr valign=top>';
-  // printOpFormIntro('RunImport', array ('mode' => 'one'));
-  echo "<form method=post name=ImportObject action='?module=redirect&page=depot&tab=yamlimport&op=RunImport'>";
+  printOpFormIntro('RunImport', array ('mode' => 'one'));
   echo '<tr valign=top><th>Assign tags</th><th align=center>Name</th><th align=center>Import ?</th></tr>';
   // taglist on display - left handed
   echo "<tr valign=top><td rowspan=\"0\">";
@@ -199,171 +204,56 @@ function RunImport()
   global $remote_username;
 
   $knownTags=getKnownYAMLTags();
+  $attribute_name_map=getAttributeNameMap();
 
   $default_contact=getConfigVar('YAML_DEFAULTCONTACT');
   $update_contact=strtolower(getConfigVar('YAML_UPDATE_CONTACT'));
   $default_sw_type_name=getConfigVar('YAML_DEFAULT_SW_TYPE');
+  $olddir=getConfigVar('YAML_BACKUPDIR');
+  // We assume quite some type IDs below. Might be an idea to query them from the database 
+  // directly... or alternatively define them in the config? But for now let's leave them 
+  // hardcoded for faster processing of data
+  $machinetype=4;                      // Server
+  $contact_attribute_id=14;            // contact person
+  $architecture_id=10006;
+  $architecture_chapter_id=10012;      // mapping to different architectures
+  $hypervisor_attribute_id=26;
+  $hypervisor_dict_chapter_id=29;      // yes|no
+  $operatingsystem_dict_chapter_id=13; // Operating System list
+
   $default_os_dict_key='';
   if ("$default_sw_type_name" != "")
   {
     $default_os_dict_key = getdict($hw=$default_sw_type_name, $chapter=$operatingsystem_dict_chapter_id);
   }
-  //
-  // We assume quite some type IDs below. Might be an idea to query them from the database 
-  // directly... or alternatively define them in the config?
-  //
-  // $query = "SELECT dict_key FROM Dictionary WHERE dict_value='Server' LIMIT 1";
-  // unset($result);
-  // $result = usePreparedSelectBlade ($query);
-  // $resultarray = $result->fetchAll ();
-  // if($resultarray)
-  // {
-  //    $machinetype=$resultarray[0]['dict_key'];
-  // }
-  // else
-  // {
-  //     return showError("Could not identify 'Server' dictionary ID in Database");
-  // }
-  $machinetype=4;
 
-  // ID for HW warranty
-  // $query = "SELECT id FROM Attribute where name='HW warranty expiration' LIMIT 1";
-  // unset($result);
-  // $result = usePreparedSelectBlade ($query);
-  // $resultarray = $result->fetchAll (PDO::FETCH_ASSOC);
-  // if($resultarray)
-  // {
-  //     $hw_warranty_id=$resultarray[0]['id'];
-  // }
-  // else
-  // {
-  //     return showError("Could not identify 'HW warranty expiration' attribute number in Database");
-  // }
-  $hw_warranty_id=22;
-
-  // ID for Memorysize
-  // $query = "select id FROM Attribute where name='RAM (GB)' LIMIT 1";
-  // unset($result);
-  // $result = usePreparedSelectBlade ($query);
-  // $resultarray = $result->fetchAll (PDO::FETCH_ASSOC);
-  // if($resultarray)
-  // {
-  //     $memorysize_id=$resultarray[0]['id'];
-  // }
-  // else
-  // {
-  //     return showError("Could not identify 'RAM (GB)' attribute number in Database");
-  // }
-  $memorysize_id=10008;
-
-  // ID for Orthos-ID
-  // $query = "SELECT id FROM Attribute WHERE name='Orthos-ID' LIMIT 1";
-  // unset($result);
-  // $result = usePreparedSelectBlade ($query);
-  // $resultarray = $result->fetchAll (PDO::FETCH_ASSOC);
-  // if($resultarray)
-  // {
-  //     $orthos_attribute_id=$resultarray[0]['id'];
-  // }
-  // else
-  // {
-  //     return showError("Could not identify 'Orthos-ID' attribute number in Database");
-  // }
-  $orthos_attribute_id=10004;
-
-  // ID for contact person
-  // $query = "SELECT id FROM Attribute WHERE name='contact person' LIMIT 1";
-  // unset($result);
-  // $result = usePreparedSelectBlade ($query);
-  // $resultarray = $result->fetchAll (PDO::FETCH_ASSOC);
-  // if($resultarray)
-  // {
-  //     $contact_attribute_id = $resultarray[0]['id'];
-  // }
-  // else
-  // {
-  //    return showError("Could not identify 'contact person' attribute number in Database");
-  // }
-  $contact_attribute_id=14;
-
-  // ID for machine architecture
-  // $query = "SELECT id FROM Attribute WHERE name='architecture' LIMIT 1";
-  // unset($result);
-  // $result = usePreparedSelectBlade ($query);
-  // $resultarray = $result->fetchAll (PDO::FETCH_ASSOC);
-  // if($resultarray)
-  // {
-  //     $architecture_id = $resultarray[0]['id'];
-  // }
-  // else
-  // {
-  //    return showError("Could not identify 'architecture' attribute number in Database");
-  // }
-  $architecture_id=10006;
-
-  // ID for machine chapter id
-  // $query = "SELECT chapter_id FROM AttributeMap where attr_id=$architecture_id LIMIT 1";
-  // unset($result);
-  // $result = usePreparedSelectBlade ($query);
-  // $resultarray = $result->fetchAll (PDO::FETCH_ASSOC);
-  // if($resultarray)
-  // {
-  //     $architecture_chapter_id = $resultarray[0]['chapter_id'];
-  // }
-  // else
-  // {
-  //    return showError("Could not identify the 'chapter_id' for the architecture map in Database");
-  // }
-  $architecture_chapter_id=10012;
-
-  // HW type ID
-  // $query = "SELECT id FROM Attribute WHERE name='HW type' LIMIT 1";
-  // unset($result);
-  // $result = usePreparedSelectBlade ($query);
-  // $resultarray = $result->fetchAll (PDO::FETCH_ASSOC);
-  // if($resultarray)
-  // {
-  //   $hw_type_id=$resultarray[0]['id'];
-  // }
-  // else
-  // {
-  //   return showError("Could not identify the 'HW type' ID in Database");
-  // }
-  $hw_type_id=2;
-  
-  // Memory
-  // $query = "SELECT id FROM Attribute WHERE name='RAM (GB)' LIMIT 1";
-  // unset($result);
-  // $result = usePreparedSelectBlade ($query);
-  // $resultarray = $result->fetchAll (PDO::FETCH_ASSOC);
-  // if($resultarray)
-  // {
-  //   $memory_size=$resultarray[0]['id'];
-  // }
-  // else
-  // {
-  //   return showError("Could not identify the 'RAM (GB)' ID in Database");
-  // }
-  $memory_size=10008;
-
-  // Hypervisor
-  $hypervisor_attribute_id=26;
-  $hypervisor_dict_chapter_id=29;
-
-  // Operating System
-  $operatingsystem_dict_chapter_id=13;
-
-  // FQDN
-  $fqdn_attribute_id=3;
-
-  // UUID
-  $uuid_attribute_id=25;
-
-  // Serialnumber
-  $serialnumber_attribute_id='1';
+  foreach ($attribute_name_map as $yaml_key => $attribute_name)
+  {
+   if (isValidAttributeNameString($attribute_name))
+   {
+     // FIXME: escaping the values should be done, but we need to 
+     //        handle whitespaces without changing them.
+     //   $a_name=mysqli_real_escape_string($attribute_name); // does NOT work here for me
+     $a_name=$attribute_name;
+   }
+   else 
+   {
+     return showError("Attribute name: '$attribute_name' contains not allowed characters");
+   }
+    unset($result);
+    unset($resultarray);
+    $query = "SELECT id FROM Attribute where name='". $a_name ."' LIMIT 1";
+    $result = usePreparedSelectBlade ($query);
+    $resultarray = $result->fetchAll ();
+    if($resultarray)
+    {
+       $attribute_id_map[$yaml_key]['id']=$resultarray[0]['id'];
+       $attribute_id_map[$yaml_key]['name']="$attribute_name";
+       array_push($knownTags,$yaml_key);
+    }
+  }
 
   // handling of directory for parsed/imported YAML files
-  $olddir=getConfigVar('YAML_BACKUPDIR');
   if (! is_dir("$olddir")){
     if (!mkdir("$olddir", 0775, true))
     {		  
@@ -431,7 +321,7 @@ function RunImport()
     {
       // Object does not exist - create new
       //
-      // We only need a unique name inside a machinetype - the rest of values
+      // We only need a unique name inside an objecttype - the rest of values
       // for the commitAddObject() function is optional.
       // So ignore label, asset_tag and taglist for the moment,
       // as we create/update these values later
@@ -563,6 +453,7 @@ function RunImport()
     }
     if(isset($HW_type))
     {
+      $hw_type_id=$attribute_id_map['servermodel']['id'];
       $hw_dict_key = getdict($hw="$HW_type", $chapter=11);
       if (isset($object_attributes[$hw_type_id]['value']))
       {
@@ -628,131 +519,28 @@ function RunImport()
       }
     }
 
-    // Memory - Note: we defined $memorysize_id before!
-    if(isset($yaml_file_array['memorysize']))
+    foreach ( $attribute_id_map as $yaml_keyword => $new_value )
     {
-      $memory=(int) $yaml_file_array['memorysize'];
-    }
-    if(isset($yaml_file_array['memory_size']))
-    {
-      $memory=(int) $yaml_file_array['memory_size'];
-    }
-    if(isset($memory) && ("$memory" != ""))
-    {
-      if (isset($object_attributes[$memorysize_id]['value']))
+      if (isset($yaml_file_array[$yaml_keyword]))
       {
-	$old_memory=$object_attributes[$memorysize_id]['value'];
-	if ("$old_memory" != "$memory")
-	{
-	  commitUpdateAttrValue($object_id = $id, $attr_id = $memorysize_id, $value = $memory);
-          addLog("updated memory from $old_memory to: $memory");
-	}
-      }
-      else 
-      {
-        commitUpdateAttrValue($object_id = $id, $attr_id = $memorysize_id, $value = $memory);
-        addLog("set memory to: $memory");
-      }
-    }
-
-    // Warranty - Note: we defined hw_warranty_id before!
-    if(isset($yaml_file_array['warranty']))
-    {
-      $dt=DateTime::createFromFormat('Y-m-d', $yaml_file_array['warranty']);
-      $warranty=$dt->getTimestamp();
-      if (isset($object_attributes[$hw_warranty_id]['value']))
-      {
-        $old_warranty=$object_attributes[$hw_warranty_id]['value'];
-        if ($old_warranty != $warranty)
-	{
-          commitUpdateAttrValue ($object_id = $id, $attr_id = $hw_warranty_id, $value = $warranty);
-          addLog("updated HW warranty (from: $old_warranty) to: $warranty");
-	}
-      }
-      else
-      {
-        commitUpdateAttrValue ($object_id = $id, $attr_id = $hw_warranty_id, $value = $warranty);
-	addLog("set HW warranty to: $warranty");
-      }
-    }
-
-    // Orthos ID - Note: we defined orthos_attribute_id before
-    if(isset($yaml_file_array['orthos_id']))
-    {
-      $orthos_id=(int) $yaml_file_array['orthos_id'];
-      if (isset($object_attributes[$orthos_attribute_id]['value']))
-      {
-        $old_orthos_id=$object_attributes[$orthos_attribute_id]['value'];
-	if ($old_orthos_id != $orthos_id)
-	{
-	  commitUpdateAttrValue($object_id = $id, $attr_id = $orthos_attribute_id, $value = $orthos_id);
-	  addLog("updated Orthos ID from $old_orthos_id to: $orthos_id");
-	}
-      }
-      else 
-      {
-        commitUpdateAttrValue($object_id = $id, $attr_id = $orthos_attribute_id, $value = $orthos_id);
-	LogEntry("set Orthos-ID to: $orthos_id");
-      }
-    }
-
-    // FQDN
-    if(isset($yaml_file_array['fqdn']))
-    {
-      $fqdn=strtolower($yaml_file_array['fqdn']);
-      if (isset($object_attributes[$fqdn_attribute_id]['value']))
-      {
-	$old_fqdn=$object_attributes[$fqdn_attribute_id]['value'];
-	if ("$old_fqdn" != "$fqdn")
-	{
-          commitUpdateAttrValue ($object_id = $id, $attr_id = $fqdn_attribute_id, $value = $fqdn);
-	  addLog("updated FQDN from $old_fqdn to: $fqdn");
-	}
-      }
-      else 
-      {
-        commitUpdateAttrValue ($object_id = $id, $attr_id = $fqdn_attribute_id, $value = $fqdn);
-	addLog("set FQDN to: $fqdn");
-      }
-    }
-
-    // UUID
-    if(isset($yaml_file_array['uuid']))
-    {
-      $uuid=strtolower($yaml_file_array['uuid']);
-      if (isset($object_attributes[$uuid_attribute_id]['value']))
-      {
-	$old_uuid=$object_attributes[$uuid_attribute_id]['value'];
-	if ("$old_uuid" != "$uuid")
-	{
-	  commitUpdateAttrValue ($object_id = $id, $attr_id = $uuid_attribute_id, $value = $uuid);
-	  addLog("updated UUID from $old_uuid to: $uuid");
-	}
-      }
-      else 
-      {
-        commitUpdateAttrValue ($object_id = $id, $attr_id = $uuid_attribute_id, $value = $uuid);
-	addLog("set UUID to $uuid");
-      }
-    }
-
-    // OEM S/N 1. Attribute ID is '1'
-    if(isset($yaml_file_array['serialnumber']))
-    {
-      $serialno=$yaml_file_array['serialnumber'];
-      if (isset($object_attributes[$serialnumber_attribute_id]['value']))
-      {
-        $old_serialno=$object_attributes[$serialnumber_attribute_id]['value'];
-	if ("$old_serialno" != "$serialno")
-	{
-	  commitUpdateAttrValue ($object_id = $id, $attr_id = $serialnumber_attribute_id, $value = $serialno);
-	  addLog("updated Serialnumber from '$old_serialno' to: $serialno");
-	}
-      }
-      else 
-      {
-        commitUpdateAttrValue ($object_id = $id, $attr_id = $serialnumber_attribute_id, $value = $serialno);
-	addLogEntry("set Serialnumber to: $serialno");
+        $yaml_value=$yaml_file_array[$yaml_keyword];
+        $object_attribute_id=$new_value['id'];
+        if (isset($object_attributes[$object_attribute_id]['value']))
+        {
+          $old_value=$object_attributes[$object_attribute_id]['value'];
+          if ("$old_value" != "$yaml_value")
+          {
+            commitUpdateAttrValue($object_id = $id, $attr_id = $object_attribute_id, $value = $yaml_value);
+            addLog("updated ". $new_value['name'] ." from $old_value to: $yaml_value");
+            error_log("updated ". $new_value['name'] ." from $old_value to: $yaml_value; attr_id: $object_attribute_id");
+          }
+        }
+        else
+        {
+          commitUpdateAttrValue($object_id = $id, $attr_id = $object_attribute_id, $value = $yaml_value);
+          addLog("set ". $new_value['name'] ." to: $yaml_value");
+          error_log("set ". $new_value['name'] ." to: $yaml_value; attr_id: $object_attribute_id");
+        }
       }
     }
 
@@ -820,7 +608,6 @@ function RunImport()
       }
       $os_dict_key = getdict($hw=$osrelease, $chapter=$operatingsystem_dict_chapter_id);
 
-//      if (isset($object_attributes[$operatingsystem_dict_chapter_id]['key']))
       if (isset($object_attributes['4']['key']))
       {
         $old_os_dict_key=$object_attributes['4']['key'];
@@ -1075,27 +862,48 @@ function addLog($string)
   $log['txt']  .= "- $string\n";
 }
 
+function isValidAttributeNameString($str)
+{
+  return preg_match("/^[a-zA-Z0-9 ()\/:-]+$/",$str);
+}
+
+function getAttributeNameMap ()
+{
+  $map=array(
+    // 'YAML file entry' => 'Attribute name'
+    // make it easy to configurable via Configuration-UI later
+    'serialnumber' => 'OEM S/N 1',
+    'fqdn' => 'FQDN',
+    'serialnumber2' => 'OEM S/N 2',
+    'warranty' => 'HW warranty expiration',
+    'uuid' => 'UUID',
+    'hypervisor' => 'Hypervisor',
+    'base_mac' => 'base MAC address',
+    'abbreviation' => 'Abbreviation',
+    'orthos_id' => 'Orthos-ID',
+    'memorysize' => 'RAM (GB)',
+    'memory_size' => 'RAM (GB)',
+    'servermodel' => 'HW type',
+  );
+  return $map;
+}
+
 function getKnownYAMLTags ()
 {
+  // The list below is incomplete!
+  // Here we collect the known yaml file tags that
+  // need some special handling later, during import
   $knownTags = array(
-	  'fqdn',
 	  'label', 
 	  'machinetype', 
 	  'asset_tag', 
-	  'orthos_id', 
-	  'serialnumber', 
+          'contact',
 	  'description', 
-	  'servermodel', 
 	  'productname', 
 	  'container', 
-	  'memory_size', 
-	  'warranty',
 	  'architecture',
-	  'contact',
 	  'operatingsystem',
 	  'operatingsystemrelease',
-	  'hypervisor',
-	  'uuid',
 	  'interfaces',
 	  'ipaddress_',
 	  'macaddress_',
