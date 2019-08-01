@@ -654,7 +654,7 @@ function RunImport()
       else
       {
         commitUpdateAttrValue($object_id = $id, $attr_id = $hypervisor_attribute_id, $value = $hv_dict_key);
-	addLog("set flag hypervisor to: $hypervisor");
+        addLog("set flag hypervisor to: $hypervisor");
       }
     }
 
@@ -877,7 +877,6 @@ function getAttributeNameMap ()
     'serialnumber2' => 'OEM S/N 2',
     'warranty' => 'HW warranty expiration',
     'uuid' => 'UUID',
-    'hypervisor' => 'Hypervisor',
     'base_mac' => 'base MAC address',
     'abbreviation' => 'Abbreviation',
     'orthos_id' => 'Orthos-ID',
@@ -894,22 +893,23 @@ function getKnownYAMLTags ()
   // Here we collect the known yaml file tags that
   // need some special handling later, during import
   $knownTags = array(
-	  'label', 
-	  'machinetype', 
-	  'asset_tag', 
-          'contact',
-	  'description', 
-	  'productname', 
-	  'container', 
-	  'architecture',
-	  'operatingsystem',
-	  'operatingsystemrelease',
-	  'interfaces',
-	  'ipaddress_',
-	  'macaddress_',
-	  'label_',
-	  'tags',
-          );
+    'label', 
+    'machinetype', 
+    'asset_tag', 
+    'contact',
+    'description', 
+    'productname', 
+    'container', 
+    'architecture',
+    'hypervisor',
+    'operatingsystem',
+    'operatingsystemrelease',
+    'interfaces',
+    'ipaddress_',
+    'macaddress_',
+    'label_',
+    'tags',
+  );
   return $knownTags;
 }
 
