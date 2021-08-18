@@ -264,8 +264,8 @@ function RunImport()
   foreach($objectnames as $file)
   {
     $file_array = spyc_load_file("$file");
-    $name=$file_array[0]['name'];
-    $yaml_file_array=$file_array[0]['parameters'];
+    $name=$file_array['name'];
+    $yaml_file_array=$file_array['parameters'];
     // At this point, $parameter_array contains all the data from the 
     // YAML file in a indexed array (hopefully).
     if (! isset($name))
